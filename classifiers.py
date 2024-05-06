@@ -3,7 +3,7 @@ import torch
 import torchvision
 from torchvision.transforms import v2
 from datetime import datetime
-from models.classifier import Classifier
+from models.classifier import Classifier, LogitsHead
 from tqdm import tqdm
 import logger
 import inference
@@ -273,6 +273,15 @@ class MobileNetV3SmallClassifier(AbstractClassifier):
             output_size=num_classes,
             hidden_sizes=[],
             softmax_dim=1,
+        )
+            
+            
+class MultiClassMobileNetV3SmallClassifier(MobileNetV3SmallClassifier):
+    def replace_head(self, model, num_classes: int):
+        model.classifier= LogitsHead(
+            input_size=576,
+            output_size=num_classes,
+            hidden_sizes=[],
         )
             
             

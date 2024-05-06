@@ -43,3 +43,41 @@ class Classifier(nn.Module):
             x: the tensor
         """
         return self.softmax(self.fcs(x))
+    
+
+class LogitsHead(nn.Module):
+    """
+    This module takes the outputs of a feature extractor and runs them through a
+    classification network that consists of linear layers. It does not contain a 
+    final softmax layer.
+    
+    Params:
+        input_size:        size of the input features
+        output_size:       size of the target features (usually the numer of classes)
+        hidden_sizes:      size of the hidden layers
+    """
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        hidden_sizes: list[int] = [256],
+    ):
+        super(LogitsHead, self).__init__()
+        
+        # Hyperparameters
+        self.input_size = input_size
+        self.output_size = output_size
+        self.hidden_sizes = hidden_sizes
+        
+        # Layers
+        layer_dims = [input_size] + hidden_sizes + [output_size]
+        self.fcs = nn.Sequential(*[nn.Linear(dim_in, dim_out) for (dim_in, dim_out) in zip(layer_dims[:-1], layer_dims[1:])])
+        
+    def forward(self, x):
+        """
+        Run a tensor through the model
+        
+        Params:
+            x: the tensor
+        """
+        return self.fcs(x)
