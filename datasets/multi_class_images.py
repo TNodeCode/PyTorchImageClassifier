@@ -13,6 +13,7 @@ class MultiClassImageDataset(Dataset):
             train_dir: str = "train",
             val_dir: str = "val",
             test_dir: str = "test",
+            is_val_dataset: bool = False,
             batch_size_train = 16,
             batch_size_val = 4,
             batch_size_test = 4,
@@ -29,8 +30,13 @@ class MultiClassImageDataset(Dataset):
         self.batch_size_test = batch_size_test
         self.transform_train = transform_train
         self.transform_val = transform_val
-        df_data = pd.read_csv(f"{self.root_dir}/{dataset_name}/dataset.csv")
-        self.filenames = df_data.loc[:, "image"]
+        df_data_train = pd.read_csv(f"{self.root_dir}/{dataset_name}/dataset_train.csv")
+        df_data_val = pd.read_csv(f"{self.root_dir}/{dataset_name}/dataset_val.csv")
+        if is_val_dataset:
+            df_data = df_data_val
+        else:
+            df_data = df_data_train
+        self.filenames= df_data.loc[:, "image"]
         self.labels = df_data.drop("image", axis=1).to_numpy().astype(np.float32)
         self.num_classes = self.labels.shape[1]
 
@@ -70,6 +76,7 @@ class MultiClassImageDataset(Dataset):
             train_dir=self.train_dir,
             val_dir=self.val_dir,
             test_dir=self.test_dir,
+            is_val_dataset=False,
             batch_size_train=self.batch_size_train,
             batch_size_val=self.batch_size_val,
             batch_size_test=self.batch_size_test,
@@ -87,6 +94,7 @@ class MultiClassImageDataset(Dataset):
             train_dir=self.train_dir,
             val_dir=self.val_dir,
             test_dir=self.test_dir,
+            is_val_dataset=True,
             batch_size_train=self.batch_size_train,
             batch_size_val=self.batch_size_val,
             batch_size_test=self.batch_size_test,
@@ -104,6 +112,7 @@ class MultiClassImageDataset(Dataset):
             train_dir=self.train_dir,
             val_dir=self.val_dir,
             test_dir=self.test_dir,
+            is_val_dataset=True,
             batch_size_train=self.batch_size_train,
             batch_size_val=self.batch_size_val,
             batch_size_test=self.batch_size_test,
