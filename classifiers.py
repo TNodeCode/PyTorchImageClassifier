@@ -14,6 +14,7 @@ class AbstractClassifier():
         self,
         name: str,
         num_classes: int,
+        multi_class: bool = False,
         resume: str = None,
         device: str = "cpu",
         root_dir: str = None,
@@ -22,9 +23,10 @@ class AbstractClassifier():
     ):
         self.name = name
         self.num_classes = num_classes
+        self.multi_class = multi_class
         self.fine_tuning = fine_tuning
         self.device = device
-        self.model = self.build_model(num_classes=num_classes, resume=resume, device=device, fine_tuning=fine_tuning).to(device)
+        self.model = self.build_model(num_classes=num_classes, resume=resume, fine_tuning=fine_tuning).to(device)
         if resume:
             self.load_weights(resume)
         if root_dir is None:
@@ -58,7 +60,6 @@ class AbstractClassifier():
         num_classes: int = None,
         resume: str = None,
         fine_tuning: bool = True,
-        device: str = "cpu"
     ):
         ### Instantiate model
         model = self.load_pretrained_model()
@@ -122,7 +123,7 @@ class AbstractClassifier():
     def train_one_epoch(self, train_dataloader, optim, criterion) -> dict:
         # Initialize epoch losses
         epoch_losses = self.init_epoch_losses()
-        n_correct = 0
+        true_positives = 0
         n_images = 0
         self.model.train()
         # Set format for progress bar.
@@ -132,18 +133,48 @@ class AbstractClassifier():
             labels = labels.to(self.device)
             optim.zero_grad()
             output = self.run_training_data_through_model(images)
-            loss = criterion(output, labels)
+            if self.multi_class:
+                # creatte masks for true and false labels
+                mask_true_labels = labels == 1.0
+                mask_false_labels = labels == 0.0
+                # compute loss for positive and negative samples
+                loss_true_labels = criterion(output[mask_true_labels], labels[mask_true_labels])
+                loss_false_labels = criterion(output[mask_false_labels], labels[mask_false_labels])
+                # compute total loss based on weighted losses for positive and negative samples
+                loss = 0.5 * loss_true_labels + 0.5 * loss_false_labels
+            else:
+                loss = criterion(output, labels)
             loss.backward()
             optim.step()
             # Compute accuracy
             topv, topi = torch.topk(output, k=1)
             n_images += images.shape[0]
-            n_correct += (topi.squeeze() == labels).sum().item()
+            if self.multi_class:
+                # threshold for accepting a prediction as true
+                threshold = 0.5
+                # Run logits of neuran network through sigmoid layer and checking if values are greater than the threshold
+                predictions = torch.sigmoid(output.detach()) >= threshold
+                # create masks for true and false predictions
+                mask_true_predictions = (predictions == 1.0)
+                mask_false_predictions = (predictions == 0.0)
+                # compute TP, TN, FP and FN
+                true_positives = (predictions[mask_true_predictions] == labels[mask_true_predictions]).sum().item()
+                false_positives = (predictions[mask_true_predictions] != labels[mask_true_predictions]).sum().item()
+                true_negatives = (predictions[mask_false_predictions] == labels[mask_false_predictions]).sum().item()
+                false_negatives = (predictions[mask_false_predictions] != labels[mask_false_predictions]).sum().item()
+                # compute accuracy, precision, recall and F1 score
+                accuracy = (true_positives + true_negatives) / (true_positives + true_negatives + false_positives + false_negatives)
+                precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0.0
+                recall = true_positives / (true_positives + false_negatives)
+                f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
+            else:
+                true_positives += (topi.squeeze() == labels).sum().item()
             epoch_losses = self.update_epoch_losses(
                 epoch_losses,
                 {"loss_classification": loss.item()}
             )
-        return {"n_train_images": n_images, "train_accuracy": n_correct/n_images,**epoch_losses}
+
+        return {"n_train_images": n_images, "train_accuracy": true_positives/n_images,**epoch_losses}
 
     def train(
         self,
@@ -231,18 +262,39 @@ class AbstractClassifier():
                 # Put model into evaluation mode
                 self.model.eval()
                 n_images = 0
-                n_correct = 0
+                true_positives = 0
                 bar_format = '{l_bar}{bar:20}{r_bar}{bar:-10b}'
                 for images, labels in tqdm(dataloader_val, bar_format=bar_format, total=len(dataloader_val), desc="Validation batches"):
                     images = images.to(self.device)
                     labels = labels.to(self.device)
                     # Run images through model
                     output = self.run_training_data_through_model(images)
-                    # Compute accuracy
-                    topv, topi = torch.topk(output, k=1)
-                    n_images += images.shape[0]
-                    n_correct += (topi.squeeze() == labels).sum().item()
-                    epoch_metrics |= {"n_val_images": n_images, "val_accuracy": n_correct/n_images}
+                    if self.multi_class:
+                        # Compute accuracy
+                        topv, topi = torch.topk(output, k=1)
+                        n_images += images.shape[0]
+                        true_positives += (topi.squeeze() == labels).sum().item()
+                        epoch_metrics |= {"n_val_images": n_images, "val_accuracy": true_positives/n_images}
+                    else:
+                        # threshold for accepting a prediction as true
+                        threshold = 0.5
+                        # Run logits of neuran network through sigmoid layer and checking if values are greater than the threshold
+                        predictions = torch.sigmoid(output.detach()) >= threshold
+                        # create masks for true and false predictions
+                        mask_true_predictions = (predictions == 1.0)
+                        mask_false_predictions = (predictions == 0.0)
+                        # compute TP, TN, FP and FN
+                        true_positives = (predictions[mask_true_predictions] == labels[mask_true_predictions]).sum().item()
+                        false_positives = (predictions[mask_true_predictions] != labels[mask_true_predictions]).sum().item()
+                        true_negatives = (predictions[mask_false_predictions] == labels[mask_false_predictions]).sum().item()
+                        false_negatives = (predictions[mask_false_predictions] != labels[mask_false_predictions]).sum().item()
+                        # compute accuracy, precision, recall and F1 score
+                        accuracy = (true_positives + true_negatives) / (true_positives + true_negatives + false_positives + false_negatives)
+                        precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0.0
+                        recall = true_positives / (true_positives + false_negatives)
+                        f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
+                        epoch_metrics |= {"n_val_images": n_images, "val_accuracy": accuracy, "val_precision": precision, "val_recall": recall, "val_f1_score": f1_score}
+
             self.log_epoch_metrics(n_epochs=n_epochs, epoch=epoch, epoch_metrics=epoch_metrics)
             
             
@@ -250,6 +302,7 @@ class MobileNetV3SmallClassifier(AbstractClassifier):
     def __init__(
         self,
         num_classes: int = None,
+        multi_class: bool = False,
         resume: str = None,
         device: str = "cpu",
         root_dir: str = None,
@@ -258,37 +311,37 @@ class MobileNetV3SmallClassifier(AbstractClassifier):
         super().__init__(
             name="mobilenet_v3_small",
             num_classes=num_classes,
+            multi_class=multi_class,
             resume=resume,
             device=device,
             root_dir=root_dir,
-            fine_tuning=True,
+            fine_tuning=fine_tuning,
         )
 
     def load_pretrained_model(self):
         return torchvision.models.mobilenet_v3_small(weights='DEFAULT')
     
     def replace_head(self, model, num_classes: int):
-        model.classifier= Classifier(
-            input_size=576,
-            output_size=num_classes,
-            hidden_sizes=[],
-            softmax_dim=1,
-        )
-            
-            
-class MultiClassMobileNetV3SmallClassifier(MobileNetV3SmallClassifier):
-    def replace_head(self, model, num_classes: int):
-        model.classifier= LogitsHead(
-            input_size=576,
-            output_size=num_classes,
-            hidden_sizes=[],
-        )
+        if self.multi_class:
+            model.classifier= LogitsHead(
+                input_size=576,
+                output_size=num_classes,
+                hidden_sizes=[],
+            )
+        else:
+            model.classifier= Classifier(
+                input_size=576,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            )
             
             
 class ResNet50Classifier(AbstractClassifier):
     def __init__(
         self,
         num_classes: int = None,
+        multi_class: bool = False,
         resume: str = None,
         device: str = "cpu",
         root_dir: str = None,
@@ -297,22 +350,30 @@ class ResNet50Classifier(AbstractClassifier):
         super().__init__(
             name="resnet50",
             num_classes=num_classes,
+            multi_class=multi_class,
             resume=resume,
             device=device,
             root_dir=root_dir,
-            fine_tuning=True,
+            fine_tuning=fine_tuning,
         )
 
     def load_pretrained_model(self):
         return torchvision.models.resnet50(weights='DEFAULT')
     
     def replace_head(self, model, num_classes: int):
-        model.fc= Classifier(
-            input_size=2048,
-            output_size=num_classes,
-            hidden_sizes=[],
-            softmax_dim=1,
-        )
+        if self.multi_class:
+            model.fc= LogitsHead(
+                input_size=2048,
+                output_size=num_classes,
+                hidden_sizes=[],
+            )
+        else:
+            model.fc= Classifier(
+                input_size=2048,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            )
             
             
 class SwinTClassifier(AbstractClassifier):
@@ -330,16 +391,23 @@ class SwinTClassifier(AbstractClassifier):
             resume=resume,
             device=device,
             root_dir=root_dir,
-            fine_tuning=True,
+            fine_tuning=fine_tuning,
         )
 
     def load_pretrained_model(self):
         return torchvision.models.swin_t(weights='DEFAULT')
     
     def replace_head(self, model, num_classes: int):
-        model.head= Classifier(
-            input_size=768,
-            output_size=num_classes,
-            hidden_sizes=[],
-            softmax_dim=1,
-        )
+        if self.multi_class:
+            model.head= LogitsHead(
+                input_size=768,
+                output_size=num_classes,
+                hidden_sizes=[],
+            )
+        else:
+            model.head= Classifier(
+                input_size=768,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            )
