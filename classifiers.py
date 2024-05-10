@@ -270,12 +270,6 @@ class AbstractClassifier():
                     # Run images through model
                     output = self.run_training_data_through_model(images)
                     if self.multi_class:
-                        # Compute accuracy
-                        topv, topi = torch.topk(output, k=1)
-                        n_images += images.shape[0]
-                        true_positives += (topi.squeeze() == labels).sum().item()
-                        epoch_metrics |= {"n_val_images": n_images, "val_accuracy": true_positives/n_images}
-                    else:
                         # threshold for accepting a prediction as true
                         threshold = 0.5
                         # Run logits of neuran network through sigmoid layer and checking if values are greater than the threshold
@@ -294,6 +288,12 @@ class AbstractClassifier():
                         recall = true_positives / (true_positives + false_negatives)
                         f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
                         epoch_metrics |= {"n_val_images": n_images, "val_accuracy": accuracy, "val_precision": precision, "val_recall": recall, "val_f1_score": f1_score}
+                    else:
+                        # Compute accuracy
+                        topv, topi = torch.topk(output, k=1)
+                        n_images += images.shape[0]
+                        true_positives += (topi.squeeze() == labels).sum().item()
+                        epoch_metrics |= {"n_val_images": n_images, "val_accuracy": true_positives/n_images}
 
             self.log_epoch_metrics(n_epochs=n_epochs, epoch=epoch, epoch_metrics=epoch_metrics)
             
