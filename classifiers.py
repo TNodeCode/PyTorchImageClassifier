@@ -14,6 +14,8 @@ class AbstractClassifier():
         self,
         name: str,
         num_classes: int,
+        head_input_dim: int = None,
+        head_attribute_name: str = None,
         multi_class: bool = False,
         resume: str = None,
         device: str = "cpu",
@@ -24,6 +26,8 @@ class AbstractClassifier():
         self.name = name
         self.num_classes = num_classes
         self.multi_class = multi_class
+        self.head_input_dim = head_input_dim
+        self.head_attribute_name = head_attribute_name
         self.fine_tuning = fine_tuning
         self.device = device
         self.model = self.build_model(num_classes=num_classes, resume=resume, fine_tuning=fine_tuning).to(device)
@@ -51,9 +55,25 @@ class AbstractClassifier():
         self.model.load_state_dict(
             torch.load(filepath, map_location=torch.device(self.device))["model_state"]
         )
-        
+    
     def replace_head(self, model, num_classes: int):
-        raise NotImplementedError("this function needs to be implemented")
+        if self.head_input_dim is None:
+            raise ValueError("You must specify an input dimension for the model's head")
+        if self.head_attribute_name is None:
+            raise ValueError("You must specify the attribute name where the head is stored in")
+        if self.multi_class:
+            setattr(model, self.head_attribute_name, LogitsHead(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+            ))
+        else:
+            setattr(model, self.head_attribute_name, Classifier(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            ))
     
     def build_model(
         self,
@@ -120,7 +140,8 @@ class AbstractClassifier():
         # Compute loss of batch
         return self.model(data)
         
-    def train_one_epoch(self, train_dataloader, optim, criterion) -> dict:
+    def train_one_epoch(self, train_dataloader, optim, criterion, weight_true_labels, weight_false_labels) -> dict:
+        epoch_metrics = {"train_true_positives": 0, "train_false_positives": 0, "train_true_negatives": 0, "train_false_negatives": 0}
         # Initialize epoch losses
         epoch_losses = self.init_epoch_losses()
         true_positives = 0
@@ -141,7 +162,7 @@ class AbstractClassifier():
                 loss_true_labels = criterion(output[mask_true_labels], labels[mask_true_labels])
                 loss_false_labels = criterion(output[mask_false_labels], labels[mask_false_labels])
                 # compute total loss based on weighted losses for positive and negative samples
-                loss = 0.5 * loss_true_labels + 0.5 * loss_false_labels
+                loss = weight_true_labels * loss_true_labels + weight_false_labels * loss_false_labels
             else:
                 loss = criterion(output, labels)
             loss.backward()
@@ -162,11 +183,11 @@ class AbstractClassifier():
                 false_positives = (predictions[mask_true_predictions] != labels[mask_true_predictions]).sum().item()
                 true_negatives = (predictions[mask_false_predictions] == labels[mask_false_predictions]).sum().item()
                 false_negatives = (predictions[mask_false_predictions] != labels[mask_false_predictions]).sum().item()
-                # compute accuracy, precision, recall and F1 score
-                accuracy = (true_positives + true_negatives) / (true_positives + true_negatives + false_positives + false_negatives)
-                precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0.0
-                recall = true_positives / (true_positives + false_negatives)
-                f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
+                # update epoch metrics
+                epoch_metrics["train_true_positives"] += true_positives
+                epoch_metrics["train_false_positives"] += false_positives
+                epoch_metrics["train_true_negatives"] += true_negatives
+                epoch_metrics["train_false_negatives"] += false_negatives
             else:
                 true_positives += (topi.squeeze() == labels).sum().item()
             epoch_losses = self.update_epoch_losses(
@@ -174,7 +195,22 @@ class AbstractClassifier():
                 {"loss_classification": loss.item()}
             )
 
-        return {"n_train_images": n_images, "train_accuracy": true_positives/n_images,**epoch_losses}
+        # compute accuracy, precision, recall and F1 score
+        accuracy = (epoch_metrics["train_true_positives"] + epoch_metrics["train_true_negatives"]) / (epoch_metrics["train_true_positives"] + epoch_metrics["train_true_negatives"] + epoch_metrics["train_false_positives"] + epoch_metrics["train_false_negatives"])
+        precision = epoch_metrics["train_true_positives"] / (epoch_metrics["train_true_positives"] + epoch_metrics["train_false_positives"]) if epoch_metrics["train_true_positives"] + epoch_metrics["train_false_positives"] > 0 else 0.0
+        recall = epoch_metrics["train_true_positives"] / (epoch_metrics["train_true_positives"] + epoch_metrics["train_false_negatives"])
+        f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
+        epoch_metrics["train_accuracy"] = accuracy
+        epoch_metrics["train_precision"] = precision
+        epoch_metrics["train_recall"] = recall
+        epoch_metrics["train_f1_score"] = f1_score
+
+        return {
+            "n_train_images": n_images,
+            "train_accuracy": true_positives/n_images,
+            **epoch_metrics,
+            **epoch_losses
+        }
 
     def train(
         self,
@@ -186,6 +222,9 @@ class AbstractClassifier():
         lr_step_every: int = 20,
         num_classes = None,
         device="cpu",
+        weight_true_labels: float = 0.5,
+        weight_false_labels: float = 0.5,
+        threshold_true_prediction: float = 0.5,
         log_dir: str = None,
         dataset = None,
         criterion = None,
@@ -236,7 +275,13 @@ class AbstractClassifier():
                              "scheduler": str(type(lr_scheduler)),
                              "epoch_start": datetime.now().astimezone().isoformat(),
                              "batch_size": dataset.batch_size_train}
-            epoch_metrics |= self.train_one_epoch(dataloader_train, optim, criterion)          
+            epoch_metrics |= self.train_one_epoch(
+                train_dataloader=dataloader_train,
+                optim=optim,
+                criterion=criterion,
+                weight_true_labels=weight_true_labels,
+                weight_false_labels=weight_false_labels,
+            )          
             epoch_metrics |= {"epoch_end": datetime.now().astimezone().isoformat()}
             
             # Save model weights
@@ -271,7 +316,7 @@ class AbstractClassifier():
                     output = self.run_training_data_through_model(images)
                     if self.multi_class:
                         # threshold for accepting a prediction as true
-                        threshold = 0.5
+                        threshold = threshold_true_prediction
                         # Run logits of neuran network through sigmoid layer and checking if values are greater than the threshold
                         predictions = torch.sigmoid(output.detach()) >= threshold
                         # create masks for true and false predictions
@@ -298,6 +343,84 @@ class AbstractClassifier():
             self.log_epoch_metrics(n_epochs=n_epochs, epoch=epoch, epoch_metrics=epoch_metrics)
             
             
+class EfficientNetV2SClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="efficientnet_v2_s",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1280,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.efficientnet_v2_s(weights='DEFAULT')
+            
+            
+class EfficientNetV2MClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="efficientnet_v2_m",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1280,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.efficientnet_v2_m(weights='DEFAULT')
+            
+            
+class EfficientNetV2LClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="efficientnet_v2_l",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1280,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.efficientnet_v2_l(weights='DEFAULT')
+             
+            
 class MobileNetV3SmallClassifier(AbstractClassifier):
     def __init__(
         self,
@@ -312,6 +435,8 @@ class MobileNetV3SmallClassifier(AbstractClassifier):
             name="mobilenet_v3_small",
             num_classes=num_classes,
             multi_class=multi_class,
+            head_input_dim=576,
+            head_attribute_name="classifier",
             resume=resume,
             device=device,
             root_dir=root_dir,
@@ -320,21 +445,84 @@ class MobileNetV3SmallClassifier(AbstractClassifier):
 
     def load_pretrained_model(self):
         return torchvision.models.mobilenet_v3_small(weights='DEFAULT')
-    
-    def replace_head(self, model, num_classes: int):
-        if self.multi_class:
-            model.classifier= LogitsHead(
-                input_size=576,
-                output_size=num_classes,
-                hidden_sizes=[],
-            )
-        else:
-            model.classifier= Classifier(
-                input_size=576,
-                output_size=num_classes,
-                hidden_sizes=[],
-                softmax_dim=1,
-            )
+            
+            
+class MobileNetV3LargeClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="mobilenet_v3_large",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=960,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.mobilenet_v3_large(weights='DEFAULT')
+            
+            
+class ResNet18Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="resnet18",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=512,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.resnet18(weights='DEFAULT')
+            
+            
+class ResNet34Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="resnet34",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=512,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.resnet34(weights='DEFAULT')
             
             
 class ResNet50Classifier(AbstractClassifier):
@@ -351,6 +539,8 @@ class ResNet50Classifier(AbstractClassifier):
             name="resnet50",
             num_classes=num_classes,
             multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
             resume=resume,
             device=device,
             root_dir=root_dir,
@@ -359,27 +549,65 @@ class ResNet50Classifier(AbstractClassifier):
 
     def load_pretrained_model(self):
         return torchvision.models.resnet50(weights='DEFAULT')
-    
-    def replace_head(self, model, num_classes: int):
-        if self.multi_class:
-            model.fc= LogitsHead(
-                input_size=2048,
-                output_size=num_classes,
-                hidden_sizes=[],
-            )
-        else:
-            model.fc= Classifier(
-                input_size=2048,
-                output_size=num_classes,
-                hidden_sizes=[],
-                softmax_dim=1,
-            )
+            
+            
+class ResNet101Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="resnet101",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.resnet101(weights='DEFAULT')
+            
+            
+class ResNet152Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="resnet152",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.resnet152(weights='DEFAULT')
             
             
 class SwinTClassifier(AbstractClassifier):
     def __init__(
         self,
         num_classes: int = None,
+        multi_class: bool = False,
         resume: str = None,
         device: str = "cpu",
         root_dir: str = None,
@@ -388,6 +616,9 @@ class SwinTClassifier(AbstractClassifier):
         super().__init__(
             name="swin_t",
             num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="head",
             resume=resume,
             device=device,
             root_dir=root_dir,
@@ -396,18 +627,263 @@ class SwinTClassifier(AbstractClassifier):
 
     def load_pretrained_model(self):
         return torchvision.models.swin_t(weights='DEFAULT')
-    
-    def replace_head(self, model, num_classes: int):
-        if self.multi_class:
-            model.head= LogitsHead(
-                input_size=768,
-                output_size=num_classes,
-                hidden_sizes=[],
-            )
-        else:
-            model.head= Classifier(
-                input_size=768,
-                output_size=num_classes,
-                hidden_sizes=[],
-                softmax_dim=1,
-            )
+            
+            
+class SwinSClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="swin_s",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="head",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.swin_s(weights='DEFAULT')
+            
+            
+class SwinBClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="swin_b",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1024,
+            head_attribute_name="head",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.swin_b(weights='DEFAULT')
+            
+            
+class SwinV2TClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="swin_v2_t",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="head",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.swin_v2_t(weights='DEFAULT')
+            
+            
+class SwinV2SClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="swin_v2_s",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="head",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.swin_v2_s(weights='DEFAULT')
+            
+            
+class SwinV2BClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="swin_v2_b",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1024,
+            head_attribute_name="head",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.swin_v2_b(weights='DEFAULT')
+            
+            
+class ViTB16(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="vit_b_16",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="heads",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.vit_b_16(weights='DEFAULT')
+            
+            
+class ViTB32(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="vit_b_32",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="heads",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.vit_b_32(weights='DEFAULT')
+            
+            
+class ViTL16(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="vit_l_16",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1024,
+            head_attribute_name="heads",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.vit_l_16(weights='DEFAULT')
+            
+            
+class ViTL32(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="vit_l_32",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1024,
+            head_attribute_name="heads",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.vit_l_32(weights='DEFAULT')
+            
+            
+class ViTH14(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="vit_h_14",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1280,
+            head_attribute_name="heads",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.vit_h_14(weights='DEFAULT')
