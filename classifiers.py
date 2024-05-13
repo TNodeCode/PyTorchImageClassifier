@@ -56,7 +56,7 @@ class AbstractClassifier():
             torch.load(filepath, map_location=torch.device(self.device))["model_state"]
         )
     
-    def replace_head(self, model, num_classes: int):
+    def replace_head(self, model, num_classes: int, flatten=None):
         if self.head_input_dim is None:
             raise ValueError("You must specify an input dimension for the model's head")
         if self.head_attribute_name is None:
@@ -66,12 +66,14 @@ class AbstractClassifier():
                 input_size=self.head_input_dim,
                 output_size=num_classes,
                 hidden_sizes=[],
+                flatten=flatten,
             ))
         else:
             setattr(model, self.head_attribute_name, Classifier(
                 input_size=self.head_input_dim,
                 output_size=num_classes,
                 hidden_sizes=[],
+                flatten=flatten,
                 softmax_dim=1,
             ))
     
@@ -473,6 +475,186 @@ class MobileNetV3LargeClassifier(AbstractClassifier):
         return torchvision.models.mobilenet_v3_large(weights='DEFAULT')
             
             
+class ConvNeXtTinyClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="convnext_tiny",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.convnext_tiny(weights='DEFAULT')
+    
+    def replace_head(self, model, num_classes: int):
+        if self.head_input_dim is None:
+            raise ValueError("You must specify an input dimension for the model's head")
+        if self.head_attribute_name is None:
+            raise ValueError("You must specify the attribute name where the head is stored in")
+        if self.multi_class:
+            model.classifier[2] = LogitsHead(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+            )
+        else:
+            model.classifier[2] = Classifier(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            )
+            
+            
+class ConvNeXtSmallClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="convnext_small",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.convnext_small(weights='DEFAULT')
+
+    def replace_head(self, model, num_classes: int):
+        if self.head_input_dim is None:
+            raise ValueError("You must specify an input dimension for the model's head")
+        if self.head_attribute_name is None:
+            raise ValueError("You must specify the attribute name where the head is stored in")
+        if self.multi_class:
+            model.classifier[2] = LogitsHead(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+            )
+        else:
+            model.classifier[2] = Classifier(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            )
+          
+            
+class ConvNeXtBaseClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="convnext_base",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1024,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.convnext_base(weights='DEFAULT')
+
+    def replace_head(self, model, num_classes: int):
+        if self.head_input_dim is None:
+            raise ValueError("You must specify an input dimension for the model's head")
+        if self.head_attribute_name is None:
+            raise ValueError("You must specify the attribute name where the head is stored in")
+        if self.multi_class:
+            model.classifier[2] = LogitsHead(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+            )
+        else:
+            model.classifier[2] = Classifier(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            )
+
+            
+class ConvNeXtLargeClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="convnext_large",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1536,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.convnext_large(weights='DEFAULT')
+ 
+    def replace_head(self, model, num_classes: int):
+        if self.head_input_dim is None:
+            raise ValueError("You must specify an input dimension for the model's head")
+        if self.head_attribute_name is None:
+            raise ValueError("You must specify the attribute name where the head is stored in")
+        if self.multi_class:
+            model.classifier[2] = LogitsHead(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+            )
+        else:
+            model.classifier[2] = Classifier(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            )
+           
+            
 class ResNet18Classifier(AbstractClassifier):
     def __init__(
         self,
@@ -601,6 +783,84 @@ class ResNet152Classifier(AbstractClassifier):
 
     def load_pretrained_model(self):
         return torchvision.models.resnet152(weights='DEFAULT')
+            
+            
+class ResNext5032X4DClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="resnext50_32x4d",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.resnext50_32x4d(weights='DEFAULT')
+            
+            
+class ResNext10132X8DClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="resnext101_32x8d",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.resnext101_32x8d(weights='DEFAULT')
+            
+            
+class ResNext10164X4DClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="resnext101_64x4d",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.resnext101_64x4d(weights='DEFAULT')
             
             
 class SwinTClassifier(AbstractClassifier):
