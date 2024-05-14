@@ -56,7 +56,7 @@ class AbstractClassifier():
             torch.load(filepath, map_location=torch.device(self.device))["model_state"]
         )
     
-    def replace_head(self, model, num_classes: int, flatten=None):
+    def replace_head(self, model, num_classes: int):
         if self.head_input_dim is None:
             raise ValueError("You must specify an input dimension for the model's head")
         if self.head_attribute_name is None:
@@ -66,14 +66,12 @@ class AbstractClassifier():
                 input_size=self.head_input_dim,
                 output_size=num_classes,
                 hidden_sizes=[],
-                flatten=flatten,
             ))
         else:
             setattr(model, self.head_attribute_name, Classifier(
                 input_size=self.head_input_dim,
                 output_size=num_classes,
                 hidden_sizes=[],
-                flatten=flatten,
                 softmax_dim=1,
             ))
     
