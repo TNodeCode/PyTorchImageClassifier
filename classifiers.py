@@ -421,6 +421,110 @@ class EfficientNetV2LClassifier(AbstractClassifier):
         return torchvision.models.efficientnet_v2_l(weights='DEFAULT')
              
             
+class DenseNet121Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="densenet121",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1024,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.densenet121(weights='DEFAULT')
+             
+            
+class DenseNet161Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="densenet161",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2208,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.densenet161(weights='DEFAULT')
+             
+            
+class DenseNet169Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="densenet169",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1664,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.densenet169(weights='DEFAULT')
+             
+            
+class DenseNet201Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="densenet201",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=1920,
+            head_attribute_name="classifier",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.densenet201(weights='DEFAULT')
+             
+            
 class MobileNetV3SmallClassifier(AbstractClassifier):
     def __init__(
         self,
@@ -859,6 +963,58 @@ class ResNext10164X4DClassifier(AbstractClassifier):
 
     def load_pretrained_model(self):
         return torchvision.models.resnext101_64x4d(weights='DEFAULT')
+            
+            
+class WideResNet50Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="wide_resnet50_2",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.wide_resnet50_2(weights='DEFAULT')
+            
+            
+class WideResNet101Classifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="wide_resnet101_2",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=2048,
+            head_attribute_name="fc",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.wide_resnet101_2(weights='DEFAULT')
             
             
 class SwinTClassifier(AbstractClassifier):
