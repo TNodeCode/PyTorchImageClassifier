@@ -1174,6 +1174,32 @@ class SwinV2BClassifier(AbstractClassifier):
         return torchvision.models.swin_v2_b(weights='DEFAULT')
             
             
+class ViTB16OriginalClassifier(AbstractClassifier):
+    def __init__(
+        self,
+        num_classes: int = None,
+        multi_class: bool = False,
+        resume: str = None,
+        device: str = "cpu",
+        root_dir: str = None,
+        fine_tuning: bool = True,
+    ):
+        super().__init__(
+            name="vit_b_16_orig",
+            num_classes=num_classes,
+            multi_class=multi_class,
+            head_input_dim=768,
+            head_attribute_name="heads",
+            resume=resume,
+            device=device,
+            root_dir=root_dir,
+            fine_tuning=fine_tuning,
+        )
+
+    def load_pretrained_model(self):
+        return torchvision.models.vit_b_16(weights='DEFAULT')
+            
+            
 class ViTB16Classifier(AbstractClassifier):
     def __init__(
         self,
