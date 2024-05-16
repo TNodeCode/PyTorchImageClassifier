@@ -81,3 +81,42 @@ class LogitsHead(nn.Module):
             x: the tensor
         """
         return self.fcs(x)
+
+
+class ViTLogitsHead(nn.Module):
+    """
+    This module takes the outputs of a feature extractor and runs them through a
+    classification network that consists of linear layers. It does not contain a 
+    final softmax layer.
+    
+    Params:
+        heads_input_dim:   input dimension of the vit head
+        heads_output_dim:  output dimension of the vit head
+        input_size:        size of the input features
+        output_size:       size of the target features (usually the numer of classes)
+        hidden_sizes:      size of the hidden layers
+    """
+    def __init__(
+        self,
+        heads_input_dim: int,
+        heads_output_dim: int, 
+        input_size: int,
+        output_size: int,
+        hidden_sizes: list[int] = [256],
+    ):
+        super(ViTLogitsHead, self).__init__()
+
+        # Layers
+        self.reducer = nn.Sequential(nn.Linear(heads_input_dim, heads_output_dim), nn.Flatten(start_dim=1))
+        self.logits_head = LogitsHead(input_size=input_size, hidden_sizes=hidden_sizes, output_size=output_size)
+        
+    def forward(self, x):
+        """
+        Run a tensor through the model
+        
+        Params:
+            x: the tensor
+        """
+        x = self.reducer(x)
+        x = self.logits_head(x)
+        return x

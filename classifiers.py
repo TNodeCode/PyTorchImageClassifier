@@ -3,10 +3,11 @@ import torch
 import torchvision
 from torchvision.transforms import v2
 from datetime import datetime
-from models.classifier import Classifier, LogitsHead
+from models.classifier import Classifier, LogitsHead, ViTLogitsHead
 from tqdm import tqdm
 import logger
 import inference
+import models.vit
 
 
 class AbstractClassifier():
@@ -1173,7 +1174,7 @@ class SwinV2BClassifier(AbstractClassifier):
         return torchvision.models.swin_v2_b(weights='DEFAULT')
             
             
-class ViTB16(AbstractClassifier):
+class ViTB16Classifier(AbstractClassifier):
     def __init__(
         self,
         num_classes: int = None,
@@ -1187,7 +1188,7 @@ class ViTB16(AbstractClassifier):
             name="vit_b_16",
             num_classes=num_classes,
             multi_class=multi_class,
-            head_input_dim=768,
+            head_input_dim=1576,
             head_attribute_name="heads",
             resume=resume,
             device=device,
@@ -1196,7 +1197,28 @@ class ViTB16(AbstractClassifier):
         )
 
     def load_pretrained_model(self):
-        return torchvision.models.vit_b_16(weights='DEFAULT')
+        return models.vit.vit_b_16(weights='DEFAULT')
+    
+    def replace_head(self, model, num_classes: int):
+        if self.head_input_dim is None:
+            raise ValueError("You must specify an input dimension for the model's head")
+        if self.head_attribute_name is None:
+            raise ValueError("You must specify the attribute name where the head is stored in")
+        if self.multi_class:
+            setattr(model, self.head_attribute_name, ViTLogitsHead(
+                heads_input_dim=768,
+                heads_output_dim=8,
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+            ))
+        else:
+            setattr(model, self.head_attribute_name, Classifier(
+                input_size=self.head_input_dim,
+                output_size=num_classes,
+                hidden_sizes=[],
+                softmax_dim=1,
+            ))
             
             
 class ViTB32(AbstractClassifier):
